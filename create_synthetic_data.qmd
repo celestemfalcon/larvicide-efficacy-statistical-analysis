@@ -1,0 +1,93 @@
+---
+title: "Create synthetic data"
+author: "Celeste Falcon [email: celestemfalcon@gmail.com]"
+date: today
+format: pdf
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages and functions}
+# Install the synthpop package
+# install.packages("synthpop")
+
+# Load the library
+library(synthpop)
+library(readxl)
+library(tidyverse)
+library(broman)
+
+```
+
+```{r example}
+# Load your original data (replace 'original_data' with the name of your data frame)
+# Example with a built-in R dataset:
+data(iris) 
+original_data <- iris
+
+# Generate the synthetic data set
+# The syn() function automatically determines the best distribution for each variable
+synthetic_data <- syn(original_data)
+
+# Extract the synthetic data frame
+synthetic_df <- synthetic_data$syn
+
+# Compare the statistical properties of the original and synthetic data (optional)
+# The package provides tools for this, such as the compare.syn function
+compare(synthetic_data, original_data)
+```
+
+```{r input data}
+bioassay_data <- read_xlsx("./input/anonymized_for_portfolio/Bioassay Results_anonymized.xlsx", sheet = 5) %>%
+  filter(!is.na(Dead)) %>% 
+  mutate(Week = as.factor(Week)) %>% 
+  mutate(Sample = as.factor(Sample)) %>% 
+  mutate(Replicate = as.factor(Replicate)) %>% 
+  mutate(Duration = as.factor(Duration))
+```
+
+```{r split into control and treatment datasets}
+
+bioassay_data_control <- bioassay_data %>% 
+  filter(Sample == "CONTROL")
+  
+bioassay_data_treatment <- bioassay_data %>% 
+  filter(Sample == "TREATMENT")
+```
+
+```{r generate synth data}
+#| echo: true
+# # full data set
+# bioassay_data_syn <- syn(bioassay_data, visit.sequence = c("Dead", "Total", "Mortality"))
+# bioassay_data_syn_df <- bioassay_data_syn$syn
+# compare(bioassay_data_syn, bioassay_data, vars = c("Mortality"), plot = F)
+
+# control data set
+bioassay_data_control_syn <- syn(bioassay_data_control, visit.sequence = c("Dead", "Total", "Mortality"))
+bioassay_data_control_syn_df <- bioassay_data_control_syn$syn
+# compare(bioassay_data_control_syn, bioassay_data_control, vars = c("Mortality"), plot = T)
+
+compare(bioassay_data_control_syn, bioassay_data_control, vars = c("Mortality"), plot = F)
+
+# treatment data set
+bioassay_data_treatment_syn <- syn(bioassay_data_treatment, visit.sequence = c("Dead", "Total", "Mortality"))
+bioassay_data_treatment_syn_df <- bioassay_data_treatment_syn$syn
+compare(bioassay_data_treatment_syn, bioassay_data_treatment, vars = c("Mortality"), plot = F)
+
+```
+
+Distribution plots not shown to protect client's real data.
+
+pMSE is propensity mean squared error, a measure of the utility of synthetic data based on how distinguishable it is from the original, real data. Values closer to 0 indicate high utility (the synthetic data is indistinguishable from the real data).
+
+S_pMSE is its standardized ratio to account for scale of measurement for each variable
+
+```{r output synth data}
+# write.csv(bioassay_data_syn_df, "./synthetic_data.csv", row.names = F)
+
+bioassay_data_ctrl_trt_syn <- bind_rows(bioassay_data_control_syn_df, bioassay_data_treatment_syn_df)
+
+# write.csv(bioassay_data_ctrl_trt_syn, "./synthetic_data_by_sample.csv", row.names = F)
+
+```

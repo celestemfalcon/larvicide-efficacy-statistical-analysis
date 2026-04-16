@@ -1,0 +1,1106 @@
+---
+title: "Analysis of Mortality on Anonymized, Simulated Data"
+subtitle: "Simulated within sample"
+author: "Celeste Falcon [email: celestemfalcon@gmail.com]"
+date: today
+format: pdf
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages and functions}
+#| include: false
+#| 
+library(readxl)
+library(tidyverse)
+library(broman)
+library(knitr)
+library(fmsb)
+library(rstatix)
+```
+
+```{r input data}
+#| include: false
+#| 
+bioassay_data <- read.csv("./synthetic_data_by_sample.csv") %>%
+  filter(!is.na(Dead)) %>% 
+  mutate(Alive = Total - Dead) %>% 
+  mutate(`%Mortality` = as.numeric(myround(Mortality * 100)))
+```
+
+```{r check input data against original}
+#| include: false
+#| 
+bioassay_data_means <- bioassay_data %>% 
+  group_by(Week, Sample, Duration) %>% 
+  mutate(Mean_mortality = mean(`%Mortality`, na.rm = T))
+```
+
+# Experimental Design and Analysis
+
+*Anopheles quadrimaculatus* third instar larvae were exposed to **TREATMENT** larvicide. Mortality was assessed at 24, 48, 72, and 96 hours, with 4 replicates each (n = 25 larvae per replicate). This report contains assay results for a simulated dataset.
+
+## Analytic Methods
+
+All analyses were completed in R ver. 4.5.2 [^1]. All comparisons were performed with a Fisher’s Exact Test, as expected cell means were \< 5 [^2]. For all statistical tests, significance was assessed at alpha = 0.05 (i.e., p-value \< or = 0.05 demonstrated a significant difference).
+
+[^1]: R Core Team (2025). *R: A Language and Environment for Statistical Computing*. R Foundation for Statistical Computing, Vienna, Austria. <https://www.R-project.org/>.
+
+[^2]: Zar, J. H. 2009. Biostatistical Analysis (5th ed.). Prentice Hall: Upper Saddle River, NJ, USA.
+
+### Mortality of control replicates
+
+Mortality within control replicates was calculated. Mortality of controls should be \< 10%. Replicates with mortality = or \> 10% were identified as outliers.
+
+### Analysis of treatment replicates
+
+A two-sided Fisher’s Exact Test was used to perform pairwise comparisons of mortality for treatment replicates. Replicates that were significantly different from others were identified as outliers. The Holm method was used to adjust p-values for multiple comparisons. In situations where two of the replicates were significantly different from the remaining two replicates, the replicates with higher mortality values were treated as outliers.
+
+### Comparison of treatment to control
+
+A one-sided Fisher’s Exact Test was used to determine if mortality for the treatment group was greater than the control. When outliers were detected in either control or treatment replicates, the test was repeated excluding the outliers.
+
+{{< pagebreak >}}
+
+## Synopsis
+
+### Mortality of control replicates
+
+Mortality of control replicates was \< 10% for all durations considered in week 1. Some replicates from weeks 2, 3, 4, 5, and 6 had mortality \> or = 10%.
+
+### Analysis of treatment replicates
+
+There were no significant differences among treatment replicates for weeks 2, 5, and 6. There were significant differences among replicates for week 1 (replicate 1 at 48 hours treated as an outlier), week 3 (replicate 4 at 48 hours and replicate 1 at 96 hours treated as outliers), and week 4 (replicate 2 at 48 hours treated as an outlier).
+
+### Comparison of treatment to control
+
+For all weeks, mortality in the treatment group was significantly greater than mortality in the control group, regardless of the presence of outliers in the dataset.
+
+{{< pagebreak >}}
+
+## Week 1 results
+
+For week 1, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24 and 48 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+#| 
+bioassay_data %>% 
+  filter(Week == "1") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No"))
+
+bioassay_data_control_outliers <-  bioassay_data %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No"))
+```
+
+For all control replicates in week 1, mortality was \< 10%.
+
+```{r}
+#| include: false
+kable(bioassay_data %>% 
+        filter(Week == "1") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        select(Duration, Replicate, `%Mortality`, Outlier))
+```
+
+### Analysis of treatment replicates
+
+```{r}
+#| echo: false
+#| 
+week <- unique(bioassay_data$Week)
+duration <- unique(bioassay_data$Duration)
+replicate <- unique(bioassay_data$Replicate)
+
+for (i in week) {
+  for (j in duration) {
+    for (k in replicate) {
+      # i = week[1]
+      # j = duration[1]
+      # k = replicate[1]
+      
+      data_treatment_weeki_durationj_repk <- bioassay_data %>% 
+        filter(Sample == "TREATMENT") %>% 
+        filter(Week == i) %>% 
+        filter(Duration == j) %>% 
+        filter(Replicate == k)
+      
+      assign(paste("data_treatment_week", i, "duration", j, "rep", replicate[k], sep = "_"), data_treatment_weeki_durationj_repk)
+      
+    }
+  }
+}
+```
+
+```{r compare reps pairwise}
+#| echo: false
+#| 
+for (i in week) {
+  for (j in duration) {
+    
+    # i = week[1]
+    # j = duration[1]
+    
+    #### using rstatix function ####
+    
+    dead_and_alive <- bioassay_data %>% 
+      filter(Sample == "TREATMENT") %>% 
+      filter(Week == i) %>% 
+      filter(Duration == j) %>% 
+      select(Dead, Alive)  %>% 
+      as.data.frame()
+    
+    if (nrow(dead_and_alive) > 0) {
+      rownames(dead_and_alive) <- c("rep 1", "rep 2", "rep 3", "rep 4")
+      
+      fisher.test(dead_and_alive)
+      compare_all_trt_reps_pvalue <- fisher.test(dead_and_alive)$p.value
+      
+      assign(paste("compare_all_trt_reps_pvalue_week", i, "duration", j, sep = "_"), compare_all_trt_reps_pvalue)
+      
+      
+      pairwise_fisher_test_results <- pairwise_fisher_test(dead_and_alive, p.adjust.method = "holm")
+      
+      assign(paste("pairwise_fisher_test_results_week", i, "duration", j, sep = "_"), pairwise_fisher_test_results)
+      
+    }
+  }
+}
+```
+
+During week 1, readings taken at 48 hours had significantly different mortality between replicates.
+
+**Readings at 48 hours:** Replicate 1 (68% mortality) was significantly different from replicates 2 (100% mortality) and 4 (100% mortality). Replicate 1 was treated as an outlier.
+
+```{r}
+#| include: false
+compare_all_trt_reps_pvalue_week_1_duration_24hr
+compare_all_trt_reps_pvalue_week_1_duration_48hr
+
+kable(pairwise_fisher_test_results_week_1_duration_24hr)
+kable(pairwise_fisher_test_results_week_1_duration_48hr)
+```
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_1 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 1) %>% 
+  mutate(Outlier = if_else(Duration %in% c("48hr") & Replicate == "1", "Yes", "No"))
+
+kable(bioassay_data_treatment_outliers_week_1)
+```
+
+| Duration | Replicates for comparison | Adjusted p-value |
+|----------|---------------------------|-----------------:|
+| 48hr     | 1, 2                      |           0.0242 |
+| 48hr     | 1, 4                      |           0.0242 |
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24 and 48 hours) in week 1.
+
+```{r}
+#| echo: false
+#| 
+for (i in week) {
+  for (j in duration) {
+    # i = week[1]
+    # j = duration[1]
+    
+    data_treatment_control <- bioassay_data %>% 
+      filter(Week == i) %>% 
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>%
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control) > 0) {
+      
+      fisher.test(data_treatment_control, alternative = "less")
+      
+      one_sided_fisher_test_results_with_outliers <- fisher.test(data_treatment_control, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_with_outliers < 0.001) {
+        one_sided_fisher_test_results_with_outliers <- "< 0.001"
+      }
+      
+      assign(paste("one_sided_fisher_test_results_with_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_with_outliers)
+      
+      data_with_one_sided_fisher_test_results_with_outliers <- bioassay_data %>% 
+        filter(Week == i) %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_with_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_with_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_with_outliers)
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_1_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_1_duration_48hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Treatment replicate 1 from 48 hours was treated as an outlier and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24 and 48 hours) in week 1.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_1 <- bioassay_data_control_outliers %>% 
+  filter(Week == 1)
+
+bioassay_data_without_outliers_week_1 <- bind_rows(bioassay_data_control_outliers_week_1, bioassay_data_treatment_outliers_week_1) %>% 
+  filter(Outlier == "No")
+for (i in week) {
+  for (j in duration) {
+    i = week[1]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_1 %>% 
+      
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+        
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_1 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_1_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_1_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_1_duration_48hr)
+
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_1_all_durations)
+
+```
+
+{{< pagebreak >}}
+
+## Week 2 results
+
+For week 2, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24, 48 and 72 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+bioassay_data %>% 
+  filter(Week == "2") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+  select(Duration, Replicate, `%Mortality`, Outlier)
+```
+
+During week 2, the following control replicates had mortality \>= 10%:
+
+**Readings at 24 hours:** Control replicate 3 had 28% mortality. This replicate was treated as an outlier.
+
+```{r}
+#| echo: false
+kable(bioassay_data %>% 
+        filter(Week == "2") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        filter(Outlier == "Yes") %>% 
+        select(Duration, Replicate, Dead, Total, `%Mortality`))
+```
+
+### Analysis of treatment replicates
+
+There were no treatment replicates for week 2 that were significantly different from other treatment replicates.
+
+```{r}
+#| include: false
+
+compare_all_trt_reps_pvalue_week_2_duration_24hr
+compare_all_trt_reps_pvalue_week_2_duration_48hr
+compare_all_trt_reps_pvalue_week_2_duration_72hr
+
+kable(pairwise_fisher_test_results_week_2_duration_24hr)
+kable(pairwise_fisher_test_results_week_2_duration_48hr)
+kable(pairwise_fisher_test_results_week_2_duration_72hr)
+
+```
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_2 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 2) %>% 
+  mutate(Outlier = "No")
+
+kable(bioassay_data_treatment_outliers_week_2)
+```
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, and 72 hours) in week 2.
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_2_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_2_duration_48hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_2_duration_72hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Control replicate 3 from 24 hours was treated as an outlier and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, and 72 hours) in week 2.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_2 <- bioassay_data_control_outliers %>% 
+  filter(Week == 2)
+
+bioassay_data_without_outliers_week_2 <- bind_rows(bioassay_data_control_outliers_week_2, bioassay_data_treatment_outliers_week_2) %>% 
+  filter(Outlier == "No")
+
+for (i in week) {
+  for (j in duration) {
+    i = week[2]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_2 %>% 
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_2 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_2_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_2_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_2_duration_48hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_2_duration_72hr
+)
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_2_all_durations)
+
+```
+
+{{< pagebreak >}}
+
+## Week 3 results
+
+For week 3, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24, 48, 72, 96 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+bioassay_data %>% 
+  filter(Week == "3") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+  select(Duration, Replicate, `%Mortality`, Outlier)
+```
+
+During week 3, the following control replicates had mortality \>= 10%:
+
+**Readings at 48 hours:** Control replicate 2 had 16% mortality. This replicate was treated as an outlier.
+
+```{r}
+#| echo: false
+kable(bioassay_data %>% 
+        filter(Week == "3") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        filter(Outlier == "Yes") %>%
+        select(Duration, Replicate, Dead, Total, `%Mortality`))
+```
+
+### Analysis of treatment replicates
+
+During week 3, readings taken at 48 and 96 hours had significantly different mortality between replicates.
+
+**Readings at 48 hours:** Replicate 4 (64% mortality) was significantly different from replicate 1 (100% mortality) and replicate 2 (100% mortality). Replicate 4 was treated as an outlier.
+
+**Readings at 96 hours:** Replicate 1 (64% mortality) was significantly different from replicate 2 (100% mortality), replicate 3 (96% mortality) and replicate 4 (100% mortality). Replicate 1 was treated as an outlier.
+
+```{r}
+#| include: false
+
+compare_all_trt_reps_pvalue_week_3_duration_24hr
+compare_all_trt_reps_pvalue_week_3_duration_48hr
+compare_all_trt_reps_pvalue_week_3_duration_72hr
+compare_all_trt_reps_pvalue_week_3_duration_96hr
+
+kable(pairwise_fisher_test_results_week_3_duration_24hr)
+kable(pairwise_fisher_test_results_week_3_duration_48hr)
+kable(pairwise_fisher_test_results_week_3_duration_72hr)
+kable(pairwise_fisher_test_results_week_3_duration_96hr)
+
+```
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_3 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 3) %>% 
+  mutate(Outlier = if_else(Duration %in% c("48hr") & Replicate == "4" | 
+                             Duration %in% c("96hr") & Replicate == "1", 
+                           "Yes", "No"))
+
+kable(bioassay_data_treatment_outliers_week_3)
+```
+
+| Duration | Replicates for comparison | Adjusted p-value |
+|----------|---------------------------|-----------------:|
+| 48hr     | 1, 4                      |          0.00978 |
+| 48hr     | 2, 4                      |          0.00978 |
+| 96hr     | 1, 2                      |          0.00978 |
+| 96hr     | 1, 3                      |          0.04240 |
+| 96hr     | 1, 4                      |          0.00978 |
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 28, 72, and 96 hours) in week 3.
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_3_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_3_duration_48hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_3_duration_72hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_3_duration_96hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Control replicate 2 from 48 hours was treated as an outlier and removed. Treatment replicate 4 from 48 hours and treatment replicate 1 from 96 hours were treated as outliers and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 28, 72, and 96 hours) in week 3.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_3 <- bioassay_data_control_outliers %>% 
+  filter(Week == 3)
+
+bioassay_data_without_outliers_week_3 <- bind_rows(bioassay_data_control_outliers_week_3, bioassay_data_treatment_outliers_week_3) %>% 
+  filter(Outlier == "No")
+
+for (i in week) {
+  for (j in duration) {
+    i = week[3]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_3 %>% 
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_3 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_3_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_3_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_3_duration_48hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_3_duration_72hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_3_duration_96hr
+)
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_3_all_durations)
+
+```
+
+{{< pagebreak >}}
+
+## Week 4 results
+
+For week 4, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24, 48, 72, and 96 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+bioassay_data %>% 
+  filter(Week == "4") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+  select(Duration, Replicate, `%Mortality`, Outlier)
+```
+
+During week 4, the following control replicates had mortality \>= 10%:
+
+**Readings at 24 hours:** Control replicate 2 had 52% mortality. This replicate was treated as an outlier.
+
+```{r}
+#| echo: false
+kable(bioassay_data %>% 
+        filter(Week == "4") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        filter(Outlier == "Yes") %>% 
+        select(Duration, Replicate, Dead, Total, `%Mortality`))
+```
+
+### Analysis of treatment replicates
+
+```{r}
+#| include: false
+
+compare_all_trt_reps_pvalue_week_4_duration_24hr
+compare_all_trt_reps_pvalue_week_4_duration_48hr
+compare_all_trt_reps_pvalue_week_4_duration_72hr
+compare_all_trt_reps_pvalue_week_4_duration_96hr
+
+kable(pairwise_fisher_test_results_week_4_duration_24hr)
+kable(pairwise_fisher_test_results_week_4_duration_48hr)
+kable(pairwise_fisher_test_results_week_4_duration_72hr)
+kable(pairwise_fisher_test_results_week_4_duration_96hr)
+
+```
+
+During week 4, readings taken at 48 hours had significantly different mortality between replicates.
+
+**Readings at 48 hours:** Replicate 2 (68% mortality) was significantly different from replicate 1 (100% mortality), replicate 3 (100% mortality), and replicate 4 (100% mortality). Replicate 2 was treated as an outlier.
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_4 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 4) %>%
+  mutate(Outlier = if_else(Duration %in% c("48hr") & Replicate == "2", "Yes", "No"))
+
+kable(bioassay_data_treatment_outliers_week_4)
+
+```
+
+| Duration | Replicates for comparison | Adjusted p-value |
+|----------|---------------------------|-----------------:|
+| 48hr     | 1, 2                      |           0.0242 |
+| 48hr     | 2, 3                      |           0.0242 |
+| 48hr     | 2, 4                      |           0.0242 |
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, 72, and 96 hours) in week 4.
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_4_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_4_duration_48hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_4_duration_72hr, 
+                data_with_one_sided_fisher_test_results_with_outliers_week_4_duration_96hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Control replicate 2 from 24 hours was treated as an outlier and removed. Treatment replicate 2 from 48 hours was treated as an outlier and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, 72, and 96 hours) in week 4.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_4 <- bioassay_data_control_outliers %>% 
+  filter(Week == 4)
+
+bioassay_data_without_outliers_week_4 <- bind_rows(bioassay_data_control_outliers_week_4, bioassay_data_treatment_outliers_week_4) %>% 
+  filter(Outlier == "No")
+
+for (i in week) {
+  for (j in duration) {
+    i = week[4]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_4 %>% 
+      
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+        
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_4 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_4_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_4_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_4_duration_48hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_4_duration_72hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_4_duration_96hr
+)
+
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_4_all_durations)
+
+```
+
+{{< pagebreak >}}
+
+## Week 5 results
+
+For week 5, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24 and 48 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+bioassay_data %>% 
+  filter(Week == "5") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+  select(Duration, Replicate, `%Mortality`, Outlier)
+```
+
+During week 5, the following control replicates had mortality \>= 10%:
+
+**Readings at 24 hours:** Control replicate 1 had 12% mortality. This replicate was treated as an outlier.\
+**Readings at 48 hours:** Control replicate 4 had 12% mortality. This replicate was treated as an outlier.
+
+```{r}
+#| echo: false
+kable(bioassay_data %>% 
+        filter(Week == "5") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        filter(Outlier == "Yes") %>% 
+        select(Duration, Replicate, Dead, Total, `%Mortality`))
+```
+
+### Analysis of treatment replicates
+
+```{r}
+#| include: false
+
+compare_all_trt_reps_pvalue_week_5_duration_24hr
+compare_all_trt_reps_pvalue_week_5_duration_48hr
+
+kable(pairwise_fisher_test_results_week_5_duration_24hr)
+kable(pairwise_fisher_test_results_week_5_duration_48hr)
+
+```
+
+There were no treatment replicates for week 5 that were significantly different from other treatment replicates.
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_5 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 5) %>% 
+  mutate(Outlier = "No")
+
+kable(bioassay_data_treatment_outliers_week_5)
+```
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24 and 48 hours) in week 5.
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_5_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_5_duration_48hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Control replicate 1 from 24 hours and control replicate 4 from 48 hours were treated as outliers and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24 and 48 hours) in week 5.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_5 <- bioassay_data_control_outliers %>% 
+  filter(Week == 5)
+
+bioassay_data_without_outliers_week_5 <- bind_rows(bioassay_data_control_outliers_week_5, bioassay_data_treatment_outliers_week_5) %>% 
+  filter(Outlier == "No")
+
+for (i in week) {
+  for (j in duration) {
+    i = week[5]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_5 %>% 
+      
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_5 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_5_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_5_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_5_duration_48hr
+)
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_5_all_durations)
+
+```
+
+{{< pagebreak >}}
+
+## Week 6 results
+
+For week 6, there were four replicates (1, 2, 3, 4) for both the control and treatment groups. Mortality was assessed at 24, 48, and 72 hours.
+
+### Mortality of control replicates
+
+```{r}
+#| include: false
+bioassay_data %>% 
+  filter(Week == "6") %>% 
+  filter(Sample == "CONTROL") %>% 
+  mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+  select(Duration, Replicate, `%Mortality`, Outlier)
+```
+
+During week 6, the following control replicates had mortality \>= 10%:
+
+**Readings at 72 hours:** Control replicate 3 had 16% mortality, and control replicate 4 had 12% mortality. These replicates were treated as outliers.
+
+```{r}
+#| echo: false
+kable(bioassay_data %>% 
+        filter(Week == "6") %>% 
+        filter(Sample == "CONTROL") %>% 
+        mutate(Outlier = if_else(`%Mortality` >= 10, "Yes", "No")) %>% 
+        filter(Outlier == "Yes") %>% 
+        select(Duration, Replicate, Dead, Total, `%Mortality`))
+```
+
+### Analysis of treatment replicates
+
+```{r}
+#| include: false
+
+compare_all_trt_reps_pvalue_week_6_duration_24hr
+compare_all_trt_reps_pvalue_week_6_duration_48hr
+compare_all_trt_reps_pvalue_week_6_duration_72hr
+
+kable(pairwise_fisher_test_results_week_6_duration_24hr)
+kable(pairwise_fisher_test_results_week_6_duration_48hr)
+kable(pairwise_fisher_test_results_week_6_duration_72hr)
+
+```
+
+There were no treatment replicates for week 6 that were significantly different from other treatment replicates.
+
+```{r}
+#| include: false
+bioassay_data_treatment_outliers_week_6 <- bioassay_data %>% 
+  filter(Sample == "TREATMENT") %>% 
+  filter(Week == 6) %>% 
+  mutate(Outlier = "No")
+
+kable(bioassay_data_treatment_outliers_week_6)
+```
+
+### Comparison of treatment to control
+
+Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, and 72 hours) in week 6.
+
+```{r}
+#| echo: false
+kable(bind_rows(data_with_one_sided_fisher_test_results_with_outliers_week_6_duration_24hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_6_duration_48hr,
+                data_with_one_sided_fisher_test_results_with_outliers_week_6_duration_72hr))
+```
+
+### Comparison of treatment to control (excluding outliers)
+
+*Control replicates 3 and 4 from 72 hours were treated as outliers and removed.* Mortality was significantly greater in the treatment than in the control for each experiment duration (24, 48, and 72 hours) in week 6.
+
+```{r}
+#| echo: false
+
+bioassay_data_control_outliers_week_6 <- bioassay_data_control_outliers %>% 
+  filter(Week == 6)
+
+bioassay_data_without_outliers_week_6 <- bind_rows(bioassay_data_control_outliers_week_6, bioassay_data_treatment_outliers_week_6) %>% 
+  filter(Outlier == "No")
+
+for (i in week) {
+  for (j in duration) {
+    i = week[6]
+    # j = duration[1]
+    
+    data_treatment_control_without_outliers <- bioassay_data_without_outliers_week_6 %>% 
+      filter(Duration == j) %>% 
+      group_by(Sample) %>% 
+      mutate(sum_dead = sum(Dead)) %>% 
+      mutate(sum_alive = sum(Alive)) %>% 
+      select(Sample, Duration, sum_dead, sum_alive) %>% 
+      distinct() %>% 
+      select(Sample, sum_dead, sum_alive) %>% 
+      arrange(Sample) %>% 
+      column_to_rownames(var = "Sample")
+    
+    if (nrow(data_treatment_control_without_outliers) > 0) {
+      
+      fisher.test(data_treatment_control_without_outliers, alternative = "less")
+      
+      one_sided_fisher_test_results_exclude_outliers <- fisher.test(data_treatment_control_without_outliers, alternative = "less")$p.value
+      
+      if (one_sided_fisher_test_results_exclude_outliers < 0.001) {
+        one_sided_fisher_test_results_exclude_outliers <- "< 0.001"
+      }
+      
+      assign(paste("one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), one_sided_fisher_test_results_exclude_outliers)
+      
+      data_with_one_sided_fisher_test_results_exclude_outliers <- bioassay_data_without_outliers_week_6 %>% 
+        filter(Duration == j) %>% 
+        group_by(Sample, Duration) %>%
+        mutate(Average_Mortality = mean(`%Mortality`, na.rm = T)) %>% 
+        select(Week, Sample, Duration, Average_Mortality) %>% 
+        distinct() %>% 
+        pivot_wider(id_cols = c(Duration), 
+                    names_from = Sample, 
+                    values_from = Average_Mortality, 
+                    names_glue = "{Sample}_{.value}") %>%
+        mutate(p.value = one_sided_fisher_test_results_exclude_outliers) %>% 
+        mutate(`Control (% Mortality)` = `CONTROL_Average_Mortality`) %>% 
+        mutate(`Treatment (% Mortality)` = `TREATMENT_Average_Mortality`) %>% 
+        mutate(`Control (% Mortality)` = round(`Control (% Mortality)`, digits = 1)) %>% 
+        mutate(`Treatment (% Mortality)` = round(`Treatment (% Mortality)`, digits = 1)) %>%
+        select(Duration, `Control (% Mortality)`, `Treatment (% Mortality)`, p.value)
+      
+      assign(paste("data_with_one_sided_fisher_test_results_exclude_outliers_week", i, "duration", j, sep = "_"), data_with_one_sided_fisher_test_results_exclude_outliers)
+      
+    }
+  }
+}
+```
+
+```{r}
+#| echo: false
+
+data_with_one_sided_fisher_test_results_exclude_outliers_week_6_all_durations <- bind_rows(
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_6_duration_24hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_6_duration_48hr,
+  data_with_one_sided_fisher_test_results_exclude_outliers_week_6_duration_72hr
+)
+kable(data_with_one_sided_fisher_test_results_exclude_outliers_week_6_all_durations)
+
+```
